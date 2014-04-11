@@ -29,7 +29,7 @@ function Cursor(ta, fg, bg) {
 
 Editor.prototype.setMode = function(mode) {
   this.el.spellcheck = false;
-  if (mode === "INSERT") {
+  if (this.mode !== "INSERT" && mode === "INSERT") {
     history.push(this.el.value);
     histIndex++;
   }
@@ -686,7 +686,7 @@ document.addEventListener("DOMContentLoaded", function() {
   });
   ed.el.style.height = ed.el.scrollHeight + 50 + "px";
   cu.blink(blinkSpeed);
+  history.push(ed.el.value);
   cu.y -= 1;
   cu.el.style.top = cu.y + 'px';
-  history.push(ed.el.value);
 });
