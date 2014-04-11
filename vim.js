@@ -12,6 +12,7 @@ function Cursor(ta, fg, bg) {
   this.el.style.color = fg;
   this.el.style.padding = "0";
   this.el.style.fontFamily = "monospace";
+  this.history = [[0,0]];
   this.el.style.margin = "0";
   this.el.style.fontSize = "10pt";
   this.el.innerText = ta.value[0];
@@ -31,6 +32,7 @@ Editor.prototype.setMode = function(mode) {
   this.el.spellcheck = false;
   if (this.mode !== "INSERT" && mode === "INSERT") {
     history.push(this.el.value);
+    cu.history.push([cu.column, cu.line]);
     histIndex++;
   }
   this.modeText.innerText = "-- " + mode + " --";
@@ -42,8 +44,19 @@ Cursor.prototype.refresh = function() {
   if (cur[this.column]) {
     this.el.innerHTML = cur[this.column].replace(" ", "&nbsp;");
   } else {
-    this.el.innerHTML = "&nbsp;";
+    // this.el.innerHTML = "&nbsp;";
+    this.move("last");
   }
+};
+
+Cursor.prototype.moveTo = function(x, y) {
+  this.column = x;
+  this.line = y;
+  this.x = this.column * this.el.offsetWidth;
+  this.y = this.line * this.el.offsetHeight;
+  this.el.style.left = this.x + "px";
+  this.el.style.top = this.y + "px";
+  this.refresh();
 };
 
 function Editor(ta) {
@@ -580,6 +593,7 @@ document.addEventListener("DOMContentLoaded", function() {
               break;
             case "u":
               if (history.length && histIndex > 0) {
+                cu.moveTo(cu.history[histIndex][0], cu.history[histIndex][1]);
                 histIndex--;
                 ed.el.value = history[histIndex];
                 cu.refresh();
@@ -589,6 +603,7 @@ document.addEventListener("DOMContentLoaded", function() {
               if (history.length && histIndex + 1 < history.length) {
                 histIndex++;
                 ed.el.value = history[histIndex];
+                cu.moveTo(cu.history[histIndex][0], cu.history[histIndex][1]);
                 cu.refresh();
               }
               break;
@@ -607,10 +622,12 @@ document.addEventListener("DOMContentLoaded", function() {
           }
           if (!/u|R/.test(String.fromCharCode(e.which)) && def !== ed.el.value && histIndex + 1 < history.length) {
             history = history.slice(0, histIndex + 1);
+            cu.history = cu.history.slice(0, histIndex + 1);
           }
           if (!/u|R/.test(String.fromCharCode(e.which)) && def !== ed.el.value) {
             histIndex++;
             history.push(ed.el.value);
+            cu.history.push([cu.column, cu.line]);
             return;
           }
           break;
@@ -659,6 +676,7 @@ document.addEventListener("DOMContentLoaded", function() {
         cu.move("left");
         if (history[history.length - 1] !== ed.el.value) {
           history.push(ed.el.value);
+          cu.history.push([cu.column, cu.line]);
           histIndex++;
         }
       } else if (e.which === 8 && ed.mode === "INSERT") {
