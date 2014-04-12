@@ -1,6 +1,7 @@
 var cu, ed;
 var L = console.log.bind(console);
 var buffer;
+var lCol;
 var history = [];
 var histIndex = 0;
 function Cursor(ta, fg, bg) {
@@ -12,7 +13,7 @@ function Cursor(ta, fg, bg) {
   this.el.style.color = fg;
   this.el.style.padding = "0";
   this.el.style.fontFamily = "monospace";
-  this.history = [[0,0]];
+  this.history = [];
   this.el.style.margin = "0";
   this.el.style.fontSize = "10pt";
   this.el.innerText = ta.value[0];
@@ -27,13 +28,41 @@ function Cursor(ta, fg, bg) {
   this.el.style.top = this.y + "px";
   this.el.style.left = this.x + "px";
 };
+var oldLen = 0;
+function fillLines() {
+  var lines = ed.el.value.split("\n");
+  var len = lines.length;
+  if (len === oldLen) {
+    return false;
+  }
+  oldLen = len;
+  lCol.innerHTML = "";
+  var totH = 0;
+  var liH;
+  var ls = len.toString().length;
+  console.log(ls);
+  var LCW = 13 * ls;
+  lCol.style.width = LCW + "px";
+  ed.el.parentNode.style.width = window.innerWidth - LCW + "px";
+  ed.el.parentNode.style.left = LCW + "px";
+  for (var i = 0; i < len; i++) {
+    var li = document.createElement("li");
+    li.innerText = i;
+    lCol.appendChild(li);
+    if (!liH) liH = li.offsetHeight;
+  }
+  totH = liH * len;
+  while (totH < document.body.scrollTop + window.innerHeight) {
+    var li = document.createElement("li");
+    li.innerText = "~";
+    lCol.appendChild(li);
+    totH += liH;
+  }
+}
 
 Editor.prototype.setMode = function(mode) {
   this.el.spellcheck = false;
   if (this.mode !== "INSERT" && mode === "INSERT") {
-    history.push(this.el.value);
-    cu.history.push([cu.column, cu.line]);
-    histIndex++;
   }
   this.modeText.innerText = "-- " + mode + " --";
 }
@@ -41,10 +70,14 @@ Editor.prototype.setMode = function(mode) {
 Cursor.prototype.refresh = function() {
   var lines = ed.el.value.split("\n");
   var cur = lines[this.line];
+  if (!cur && this.line >= lines.length) {
+    cu.move("top");
+    cu.move("bottom");
+  }
   if (cur[this.column]) {
     this.el.innerHTML = cur[this.column].replace(" ", "&nbsp;");
   } else {
-    // this.el.innerHTML = "&nbsp;";
+    this.el.innerHTML = "&nbsp;";
     this.move("last");
   }
 };
@@ -70,9 +103,7 @@ function Editor(ta) {
 
 Cursor.prototype.blink = function(rate) {
   setInterval(function() {
-    // if (!this.pauseBlink) {
-      this.el.style.opacity = (this.pauseBlink || this.el.style.opacity === "0") ? "1" : "0";
-    // }
+    this.el.style.opacity = (this.pauseBlink || this.el.style.opacity === "0") ? "1" : "0";
   }.bind(this), rate);
 }
 
@@ -83,6 +114,7 @@ Cursor.prototype.move = function(direction, r) {
   }
   switch (direction) {
     case "right":
+      if (this.column + 1 >= lines[this.line].length) break;
       if (this.line === lines.length || lines[this.line].length - 1 === this.column || !lines[this.line].length) {
         break;
       }
@@ -215,6 +247,7 @@ Cursor.prototype.move = function(direction, r) {
       }
       break;
     case "bottom":
+      cu.move("top");
       c = this.line;
       do {
         cu.move("down");
@@ -270,6 +303,18 @@ function addChar(ch) {
     cu.el.style.left = cu.x + "px";
   }
 };
+
+function deleteWord(n) {
+  n = n | 1;
+  var col = cu.column || 1;
+  var row = cu.line   || 1;
+  var b = (cu.column + 1) * (cu.line + 1);
+  L(b);
+  var l = ed.el.value.split("\n").join(" ");
+  var s = l.substring(b);
+  if (!s.length) return false;
+  var m = l.match(new RegExp("^(([A-Za-z_]+)?(\s+)?){0," + n + "}"));
+}
 
 function deleteChar(normal) {
 
@@ -446,6 +491,46 @@ function openLine(above) {
   }
 }
 
+function previousWord(nl) {
+  var lines = ed.el.value.split("\n");
+  var l = lines[cu.line];
+  l = l.substring(0, cu.column);
+  // if (nl) l += " ";
+  var m = l.match(/(([a-zA-Z_]+)|\S)?(\s+)?$/);
+  if (!m || (nl && m[0].length === 1)) {
+    return false;
+  }
+  if (cu.column === 0) {
+    if (cu.line === 0) {
+      return triggerKey("0");
+    }
+    triggerKey("k");
+    triggerKey("$");
+    previousWord(true);
+  } else {
+    cu.moveTo(cu.column - m[0].length, cu.line);
+  }
+}
+
+function nextWord() {
+  var lines = ed.el.value.split("\n");
+  var l = lines[cu.line];
+  l = l.substring(cu.column);
+  var m = l.match(/^(([a-zA-Z_]+)|\S)?(\s+)?/);
+  if (!m || !m[0].length) {
+    return false;
+  }
+  if (m[0].length === l.length) {
+    if (cu.line + 1 === lines.length) {
+      return false;
+    }
+    triggerKey("j");
+    triggerKey("0");
+  } else {
+    cu.moveTo(cu.column + m[0].length, cu.line);
+  }
+}
+
 function indent(left) {
   var lines = ed.el.value.split("\n");
   if (lines[cu.line].length === 0) return false;
@@ -472,6 +557,7 @@ function indent(left) {
   }
 }
 var numbers = "1";
+var keyBuffer = "";
 document.addEventListener("DOMContentLoaded", function() {
   ed = new Editor(document.getElementById("vi"));
   ed.mode = "NORMAL";
@@ -485,9 +571,12 @@ document.addEventListener("DOMContentLoaded", function() {
   ed.el.addEventListener("blur", function() {
     ed.focused = false;
   });
+  ed.el.focus();
   var blink;
   var dpress, gpress, replace;
+  var ignoreCuHis;
   document.addEventListener("keypress", function(e) {
+    var lines = ed.el.value.split("\n");
     if (!ed.focused) return false;
     if (replace) {
       replace = false;
@@ -497,44 +586,143 @@ document.addEventListener("DOMContentLoaded", function() {
       return replaceChar(String.fromCharCode(e.which));
     }
     if (ed.mode === "INSERT" || !/[1-9]/.test(String.fromCharCode(e.which))) {
-      for (var i = 0, l = parseInt(numbers); i < l; i++) {
-        var c = cu.column;
-        var d = cu.line;
-        var v = ed.el.value;
+      var c = cu.column;
+      var d = cu.line;
+      var v = ed.el.value;
+      var bufferLen = keyBuffer.length;
       switch (ed.mode) {
         case "NORMAL":
+          cu.history.push([cu.column, cu.line]);
           var def = ed.el.value;
-          if (String.fromCharCode(e.which) !== "g") {
-            gpress = false;
-          }
-          if (String.fromCharCode(e.which) !== "d") {
-            dpress = false;
-          }
           switch (String.fromCharCode(e.which)) {
             case "l":
-              cu.move("right", 1);
+              if (keyBuffer === "d") {
+                cu.move("right", 1);
+                keyBuffer = "";
+                if (cu.column + 1 === lines[cu.line].length) {
+                  deleteChar(true);
+                } else {
+                  deleteChar();
+                }
+              } else if (keyBuffer === "c") {
+                if (cu.column + 1 === lines[cu.line].length) {
+                  triggerKey("x");
+                  triggerKey("A");
+                } else {
+                  triggerKey("x");
+                  triggerKey("i");
+                }
+              } else {
+                cu.move("right", 1);
+              }
               break;
             case "h":
-              cu.move("left", 1);
+              if (keyBuffer === "d") {
+                keyBuffer = "";
+                L(cu.column);
+                if (cu.column > 0) {
+                  deleteChar();
+                }
+              } else {
+                cu.move("left", 1);
+                if (keyBuffer === "c") {
+                  triggerKey("x");
+                  triggerKey("i");
+                }
+              }
               break;
             case "k":
-              cu.move("up", 1);
+              if (keyBuffer.length && keyBuffer === "d") {
+                keyBuffer = "";
+                if (cu.line + 1 === lines.length) {
+                  deleteLine();
+                  deleteLine();
+                  break;
+                }
+                deleteLine();
+                if (cu.line !== 0) {
+                  cu.move("up");
+                  deleteLine();
+                }
+              } else if (keyBuffer === "c") {
+                var oline = cu.line;
+                deleteLine();
+                if (oline === 0) {
+                  triggerKey("O");
+                } else {
+                  if (oline + 1 < ed.el.value.split("\n").length) {
+                    cu.move("up");
+                  } else {
+                    deleteLine();
+                    triggerKey("o");
+                    break;
+                  }
+                  deleteLine();
+                  cu.move("up");
+                  if (oline === 1) {
+                    triggerKey("O");
+                  } else {
+                    triggerKey("A");
+                    triggerKey("\n");
+                  }
+                }
+              } else {
+                cu.move("up", 1);
+              }
               break;
             case "j":
-              cu.move("down", 1);
+              if (keyBuffer === "d") {
+                if (cu.line + 1 !== lines.length) {
+                  deleteLine();
+                }
+                deleteLine();
+                keyBuffer = "";
+              } else if (keyBuffer === "c") {
+                var oline = cu.line;
+                deleteLine();
+                if (oline + 1 !== lines.length) {
+                  keyBuffer = "c";
+                  triggerKey("c");
+                } else {
+                  triggerKey("o");
+                }
+              } else {
+                cu.move("down", 1);
+              }
               break;
             case "w":
+              if (keyBuffer === "d") {
+                deleteWord();
+              } else {
+                nextWord();
+              }
               break;
             case "d":
-              if (i > 0 || dpress) {
+              if (keyBuffer.length && keyBuffer === "d") {
+                keyBuffer = "";
                 deleteLine();
-                dpress = false;
               } else {
-                dpress = true;
+                keyBuffer += "d";
               }
               break;
             case "0":
               cu.move("first");
+              break;
+            case "c":
+              if (keyBuffer === "c") {
+                keyBuffer = "";
+                deleteLine();
+                if (cu.line + 1 === ed.el.value.split("\n").length) {
+                  deleteLine()
+                    triggerKey("o");
+                } else if (cu.line > 0) {
+                  cu.move("up");
+                  triggerKey("A");
+                  triggerKey("\n");
+                } else {
+                  triggerKey("O");
+                }
+              } else keyBuffer += "c";
               break;
             case "$":
               cu.move("last");
@@ -543,10 +731,9 @@ document.addEventListener("DOMContentLoaded", function() {
               cu.move("bottom");
               break;
             case "g":
-              if (gpress) {
+              if (keyBuffer.length && keyBuffer === "g") {
                 cu.move("top");
-                gpress = false;
-              } else gpress = true;
+              } else keyBuffer += "g";
               break;
             case "x":
               deleteChar(true);
@@ -557,9 +744,15 @@ document.addEventListener("DOMContentLoaded", function() {
             case "p":
               paste();
               break;
+            case "b":
+              previousWord(false);
+              break;
             case "A":
               ed.mode = "INSERT";
               cu.move("last", true);
+              break;
+            case "w":
+              nextWord();
               break;
             case "i":
               ed.mode = "INSERT";
@@ -592,44 +785,59 @@ document.addEventListener("DOMContentLoaded", function() {
               cu.move("start");
               break;
             case "u":
-              if (history.length && histIndex > 0) {
-                cu.moveTo(cu.history[histIndex][0], cu.history[histIndex][1]);
+              if (histIndex > 0) {
                 histIndex--;
                 ed.el.value = history[histIndex];
                 cu.refresh();
+                cu.moveTo(cu.history[histIndex][0], cu.history[histIndex][1]);
               }
               break;
             case "R":
-              if (history.length && histIndex + 1 < history.length) {
+              if (histIndex + 1 < history.length) {
                 histIndex++;
                 ed.el.value = history[histIndex];
-                cu.moveTo(cu.history[histIndex][0], cu.history[histIndex][1]);
-                cu.refresh();
+                cu.moveTo(cu.history[histIndex - 1][0], cu.history[histIndex - 1][1]);
               }
               break;
             case "<":
-              indent(true);
+              if (keyBuffer === "<") {
+                indent(true);
+              } else {
+                keyBuffer += "<";
+              }
               break;
             case ">":
-              indent();
+              if (keyBuffer === ">") {
+                indent();
+              } else {
+                keyBuffer += ">";
+              }
               break;
             case "I":
               ed.mode = "INSERT";
               cu.move("first");
               break;
             default:
-              return;
+              keyBuffer = "";
+              break;
           }
-          if (!/u|R/.test(String.fromCharCode(e.which)) && def !== ed.el.value && histIndex + 1 < history.length) {
-            history = history.slice(0, histIndex + 1);
-            cu.history = cu.history.slice(0, histIndex + 1);
+          if (bufferLen === 1 && keyBuffer.length) {
+            keyBuffer = "";
           }
-          if (!/u|R/.test(String.fromCharCode(e.which)) && def !== ed.el.value) {
-            histIndex++;
-            history.push(ed.el.value);
-            cu.history.push([cu.column, cu.line]);
-            return;
-          }
+          var hs = /R|u/.test(String.fromCharCode(e.which));
+          if (!hs) {
+            if (def === ed.el.value) {
+              cu.history.pop();
+            } else {
+              if (histIndex + 1 !== history.length) {
+                history = history.slice(0, histIndex + 1);
+                cu.history = cu.history.slice(0, histIndex + 1);
+                histIndex = history.length - 1;
+              }
+              history.push(ed.el.value);
+              histIndex++;
+            }
+          } else cu.history.pop();
           break;
         case "INSERT":
           if (e.which === 48) {
@@ -639,23 +847,19 @@ document.addEventListener("DOMContentLoaded", function() {
             addChar(String.fromCharCode(e.which));
           } else {
             addChar("\n");
+            triggerKey("i");
+            deleteChar();
           }
           break;
       }
-      if (c === cu.column && d === cu.line && ed.el.value === v && !dpress) {
-        break;
-      }
-    }
-      numbers = "1";
-    } else {
-      if (numbers === "1") numbers = "";
-      numbers += String.fromCharCode(e.which);
     }
     var relTop = cu.el.offsetTop - window.pageYOffset;
     if (relTop + 2 * cu.el.offsetHeight >= window.innerHeight) {
       document.body.scrollTop = cu.el.offsetTop + 2 * cu.el.offsetHeight - window.innerHeight;
+      lCol.scrollTop = cu.el.offsetTop + 2 * cu.el.offsetHeight - window.innerHeight;
     } else if (relTop < 0) {
       document.body.scrollTop = cu.el.offsetTop;
+      lCol.scrollTop = cu.el.offsetTop;
     }
     ed.el.value += "\n";
     ed.el.style.height = ed.el.scrollHeight + "px";
@@ -663,6 +867,12 @@ document.addEventListener("DOMContentLoaded", function() {
     if (ed.setMode(ed.mode));
   });
   document.addEventListener("keydown", function(e) {
+    if (e.which === 82 && e.ctrlKey && !e.shiftKey && !e.metaKey && !e.altKey && ed.mode !== "INSERT") {
+      triggerKey("R");
+      e.preventDefault();
+    } else if (e.which === 82 && e.shiftKey) {
+      window.location = document.URL;
+    }
     if (ed.focused) {
       clearInterval(blink);
       cu.pauseBlink = true;
@@ -671,18 +881,19 @@ document.addEventListener("DOMContentLoaded", function() {
         cu.pauseBlink = false;
       }, blinkSpeed);
       if (e.which === 27 || (e.which === 219 && e.ctrlKey)) {
+        if (ed.mode === "INSERT") {
+          cu.move("left");
+          if (ed.el.value !== history[history.length - 1]) {
+            history.push(ed.el.value);
+            cu.history.push([cu.column, cu.line]);
+            histIndex++;
+          }
+        }
         ed.mode = "NORMAL";
         ed.setMode("NORMAL");
-        cu.move("left");
-        if (history[history.length - 1] !== ed.el.value) {
-          history.push(ed.el.value);
-          cu.history.push([cu.column, cu.line]);
-          histIndex++;
-        }
       } else if (e.which === 8 && ed.mode === "INSERT") {
         deleteChar();
       } else if (e.which === 9 && ed.mode === "INSERT") {
-        triggerKey(" ");
         triggerKey(" ");
         triggerKey(" ");
       } else if (e.which === 8 && ed.mode === "NORMAL") {
@@ -701,10 +912,15 @@ document.addEventListener("DOMContentLoaded", function() {
         }
       }
     }
+    setTimeout(function() {
+      fillLines();
+    }, 5);
   });
   ed.el.style.height = ed.el.scrollHeight + 50 + "px";
   cu.blink(blinkSpeed);
   history.push(ed.el.value);
   cu.y -= 1;
   cu.el.style.top = cu.y + 'px';
+  lCol = document.getElementById("line_column").firstElementChild;
+  fillLines();
 });
