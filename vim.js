@@ -29,9 +29,10 @@ function Cursor(ta, fg, bg) {
   this.el.style.left = this.x + "px";
 };
 var oldLen = 0;
+var LCW;
 function fillLines() {
   var lines = ed.el.value.split("\n");
-  var len = lines.length;
+  var len = lines.length - 1;
   if (len === oldLen) {
     return false;
   }
@@ -41,7 +42,7 @@ function fillLines() {
   var liH;
   var ls = len.toString().length;
   console.log(ls);
-  var LCW = 13 * ls;
+  LCW = 13 * ls;
   lCol.style.width = LCW + "px";
   ed.el.parentNode.style.width = window.innerWidth - LCW + "px";
   ed.el.parentNode.style.left = LCW + "px";
@@ -70,9 +71,10 @@ Editor.prototype.setMode = function(mode) {
 Cursor.prototype.refresh = function() {
   var lines = ed.el.value.split("\n");
   var cur = lines[this.line];
-  if (!cur && this.line >= lines.length) {
+  if (this.line >= lines.length) {
     cu.move("top");
     cu.move("bottom");
+    return;
   }
   if (cur[this.column]) {
     this.el.innerHTML = cur[this.column].replace(" ", "&nbsp;");
@@ -309,7 +311,6 @@ function deleteWord(n) {
   var col = cu.column || 1;
   var row = cu.line   || 1;
   var b = (cu.column + 1) * (cu.line + 1);
-  L(b);
   var l = ed.el.value.split("\n").join(" ");
   var s = l.substring(b);
   if (!s.length) return false;
@@ -566,7 +567,6 @@ document.addEventListener("DOMContentLoaded", function() {
   ed.el.addEventListener("focus", function() {
     document.activeElement.blur();
     ed.focused = true;
-    triggerKey("0");
   });
   ed.el.addEventListener("blur", function() {
     ed.focused = false;
@@ -619,7 +619,6 @@ document.addEventListener("DOMContentLoaded", function() {
             case "h":
               if (keyBuffer === "d") {
                 keyBuffer = "";
-                L(cu.column);
                 if (cu.column > 0) {
                   deleteChar();
                 }
@@ -860,6 +859,14 @@ document.addEventListener("DOMContentLoaded", function() {
     } else if (relTop < 0) {
       document.body.scrollTop = cu.el.offsetTop;
       lCol.scrollTop = cu.el.offsetTop;
+    }
+    // Da fuq, fix dis shit
+    if (cu.column === 0) {
+      document.body.scrollLeft = 0;
+    } else if (cu.el.offsetLeft - cu.el.offsetWidth + LCW < document.body.scrollLeft) {
+      document.body.scrollLeft = cu.el.offsetLeft + LCW;
+    } else if (cu.el.offsetLeft + LCW + cu.el.offsetWidth > document.body.scrollLeft + window.innerWidth) {
+      document.body.scrollLeft = cu.el.offsetLeft + LCW + cu.el.offsetWidth - window.innerWidth;
     }
     ed.el.value += "\n";
     ed.el.style.height = ed.el.scrollHeight + "px";
